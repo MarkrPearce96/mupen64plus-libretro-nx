@@ -1,0 +1,133 @@
+name: libretro_release
+
+# Builds the mupen64plus_next_libretro core on tag push and publishes a PUBLIC
+# GitHub Release with the macOS x86_64 dylib (built with the x64 recompiler).
+#
+# mupen64plus-next is a STOCK upstream core for RetroNest — we carry ZERO
+# source patches. The N64 recompiler is enabled purely via BUILD FLAGS:
+#   * WITH_DYNAREC=x86_64  → NEW_DYNAREC=2, x64/linkage_x64.asm (the 64-bit
+#     recompiler). Upstream's osx block disables the dynarec by default
+#     (WITH_DYNAREC empty); we override it on the command line.
+#   * ASFLAGS="-f macho64" → the Makefile has no macho case (it would emit
+#     -f elf on osx); the x64 asm is macho-aware (underscore cglobal macros),
+#     so nasm just needs the right output format.
+#
+# x86_64-only (like pcsx2/dolphin): RetroNest's daily driver is x86_64 under
+# Rosetta, and the recompiler's RWX mmap/mprotect JIT model works there with
+# RetroNest's allow-jit entitlement (same as PCSX2/DuckStation). A native
+# arm64 build would run interpreter-only (macOS strict W^X needs MAP_JIT,
+# which this core doesn't do) — deferred until native-arm64 mode is unblocked.
+#
+# The libretro entry-point asset RetroNest matches is any `*.dylib.zip`
+# (base LibretroAdapter rule), so the zip is mupen64plus_next_libretro.dylib.zip.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write  # required for softprops/action-gh-release
+
+jobs:
+  build:
+    name: Build macOS x86_64 (x64 recompiler)
+    # macos-14 = Apple Silicon + Rosetta. We build under arch -x86_64 with
+    # x86_64 Homebrew at /usr/local so the dylib (and its recompiler) is x86_64.
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rosetta 2
+        run: softwareupdate --install-rosetta --agree-to-license || true
+
+      - name: Install x86_64 Homebrew at /usr/local
+        run: |
+          if [ ! -x /usr/local/bin/brew ]; then
+            echo "Installing x86_64 Homebrew at /usr/local..."
+            NONINTERACTIVE=1 arch -x86_64 /bin/bash -c \
+              "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          fi
+          arch -x86_64 /usr/local/bin/brew --version
+
+      - name: Install build deps (x86_64)
+        run: |
+          # nasm assembles x64/linkage_x64.asm (the recompiler). Others are
+          # only pulled in if a submodule needs them — start minimal and add
+          # on CI feedback.
+          arch -x86_64 /usr/local/bin/brew update
+          arch -x86_64 /usr/local/bin/brew install nasm
+
+      - name: Build (arch -x86_64, Makefile, x64 recompiler)
+        run: |
+          NCPU=$(sysctl -n hw.ncpu)
+          echo "Building x86_64 with -j$NCPU (nasm $(arch -x86_64 /usr/local/bin/nasm -v))"
+          arch -x86_64 env \
+            PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin \
+            make platform=osx \
+                 WITH_DYNAREC=x86_64 \
+                 ASFLAGS="-f macho64" \
+                 NASM=/usr/local/bin/nasm \
+                 -j"$NCPU"
+
+      - name: Verify x86_64 dylib + libretro symbols
+        run: |
+          set -euo pipefail
+          DYLIB="$(find . -maxdepth 2 -name 'mupen64plus_next_libretro.dylib' -type f | head -1)"
+          test -n "$DYLIB"
+          echo "dylib: $DYLIB"
+          file "$DYLIB"
+          lipo -info "$DYLIB"
+          lipo -info "$DYLIB" | grep -q 'x86_64'
+          RETRO_COUNT=$(nm -gU "$DYLIB" 2>/dev/null | grep -c '_retro_' || true)
+          echo "Found $RETRO_COUNT exported _retro_* symbols"
+          test "$RETRO_COUNT" -ge 20
+          mkdir -p stage
+          cp "$DYLIB" stage/mupen64plus_next_libretro.dylib
+
+      - name: Upload dylib artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mupen64plus_next_libretro-dylib
+          path: stage/mupen64plus_next_libretro.dylib
+          if-no-files-found: error
+
+  release:
+    name: Package and publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download dylib artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mupen64plus_next_libretro-dylib
+          path: stage/
+
+      - name: Create zip
+        run: |
+          cd stage
+          zip ../mupen64plus_next_libretro.dylib.zip mupen64plus_next_libretro.dylib
+          cd ..
+          unzip -l mupen64plus_next_libretro.dylib.zip
+
+      - name: Compose release body
+        run: |
+          {
+            echo "**Platform:** macOS x86_64 (Rosetta) — built with the x64 recompiler."
+            echo "**Stock upstream core** — no RetroNest source patches (recompiler enabled via build flags)."
+          } > release_body.md
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: release_body.md
+          generate_release_notes: true
+          files: mupen64plus_next_libretro.dylib.zip
+          fail_on_unmatched_files: true
