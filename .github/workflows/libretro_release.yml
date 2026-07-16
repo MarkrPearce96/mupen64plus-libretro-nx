@@ -8,9 +8,12 @@ name: libretro_release
 #   * WITH_DYNAREC=x86_64  → NEW_DYNAREC=2, x64/linkage_x64.asm (the 64-bit
 #     recompiler). Upstream's osx block disables the dynarec by default
 #     (WITH_DYNAREC empty); we override it on the command line.
-#   * ASFLAGS="-f macho64" → the Makefile has no macho case (it would emit
-#     -f elf on osx); the x64 asm is macho-aware (underscore cglobal macros),
-#     so nasm just needs the right output format.
+#   * ASFLAGS="-f macho64 -DLEADING_UNDERSCORE" → the Makefile has no macho
+#     case (it would emit -f elf on osx). The x64 asm's cglobal/cextern macros
+#     only prepend the mach-o leading underscore when LEADING_UNDERSCORE is
+#     defined; without it every recompiler symbol (jump_vaddr_*, cc_interrupt,
+#     new_dyna_start, base_addr, ERET_new, …) links as the wrong name and the
+#     final dylib fails with "Undefined symbols for architecture x86_64".
 #
 # x86_64-only (like pcsx2/dolphin): RetroNest's daily driver is x86_64 under
 # Rosetta, and the recompiler's RWX mmap/mprotect JIT model works there with
@@ -79,7 +82,7 @@ jobs:
             PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin \
             make platform=osx \
                  WITH_DYNAREC=x86_64 \
-                 ASFLAGS="-f macho64" \
+                 ASFLAGS="-f macho64 -DLEADING_UNDERSCORE" \
                  NASM=/usr/local/bin/nasm \
                  HAVE_PARALLEL_RSP=0 \
                  HAVE_PARALLEL_RDP=0 \
