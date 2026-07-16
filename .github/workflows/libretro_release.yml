@@ -40,8 +40,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+        # NOT submodules: recursive — the paraLLEl RSP plugin has a broken
+        # nested submodule (mupen64plus-rsp-paraLLEl/lightning/gnulib has no
+        # URL in .gitmodules), which hard-fails a recursive checkout. paraLLEl
+        # is Vulkan-only and unused on macOS (we build GLideN64/GL), so the
+        # next step initialises everything EXCEPT paraLLEl.
+
+      - name: Fetch submodules (excluding Vulkan-only paraLLEl)
+        run: |
+          # Recurse into every submodule except the paraLLEl RSP/RDP tree.
+          PATHS="$(git config --file .gitmodules --get-regexp path \
+                    | awk '{print $2}' | grep -viE 'parallel|parallel')"
+          echo "Initialising submodules:"; echo "$PATHS"
+          # shellcheck disable=SC2086
+          git submodule update --init --recursive --depth 1 $PATHS
 
       - name: Install Rosetta 2
         run: softwareupdate --install-rosetta --agree-to-license || true
@@ -67,12 +79,17 @@ jobs:
         run: |
           NCPU=$(sysctl -n hw.ncpu)
           echo "Building x86_64 with -j$NCPU (nasm $(arch -x86_64 /usr/local/bin/nasm -v))"
+          # HAVE_PARALLEL_RSP/RDP=0: paraLLEl is Vulkan-only and not fetched
+          # (see checkout). macOS uses GLideN64 (GL) + HLE RSP — the standard
+          # macOS N64 config.
           arch -x86_64 env \
             PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin \
             make platform=osx \
                  WITH_DYNAREC=x86_64 \
                  ASFLAGS="-f macho64" \
                  NASM=/usr/local/bin/nasm \
+                 HAVE_PARALLEL_RSP=0 \
+                 HAVE_PARALLEL_RDP=0 \
                  -j"$NCPU"
 
       - name: Verify x86_64 dylib + libretro symbols
