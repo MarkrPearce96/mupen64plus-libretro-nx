@@ -40,20 +40,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        # NOT submodules: recursive — the paraLLEl RSP plugin has a broken
-        # nested submodule (mupen64plus-rsp-paraLLEl/lightning/gnulib has no
-        # URL in .gitmodules), which hard-fails a recursive checkout. paraLLEl
-        # is Vulkan-only and unused on macOS (we build GLideN64/GL), so the
-        # next step initialises everything EXCEPT paraLLEl.
-
-      - name: Fetch submodules (excluding Vulkan-only paraLLEl)
-        run: |
-          # Recurse into every submodule except the paraLLEl RSP/RDP tree.
-          PATHS="$(git config --file .gitmodules --get-regexp path \
-                    | awk '{print $2}' | grep -viE 'parallel|parallel')"
-          echo "Initialising submodules:"; echo "$PATHS"
-          # shellcheck disable=SC2086
-          git submodule update --init --recursive --depth 1 $PATHS
+        # No submodules — this repo VENDORS all its deps (GLideN64,
+        # mupen64plus-core, the RSP plugins) as committed source. The only
+        # git submodule is one orphaned gitlink deep inside paraLLEl
+        # (mupen64plus-rsp-paraLLEl/lightning/gnulib) with no .gitmodules
+        # mapping; a default (non-recursive) checkout leaves it as an empty
+        # placeholder, which is fine — paraLLEl is Vulkan-only and disabled
+        # below (HAVE_PARALLEL_RSP/RDP=0).
 
       - name: Install Rosetta 2
         run: softwareupdate --install-rosetta --agree-to-license || true
