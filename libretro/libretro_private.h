@@ -18,6 +18,8 @@ extern retro_log_printf_t log_cb;
 extern retro_perf_register_t perf_register_cb;
 extern bool libretro_swap_buffer;
 void retro_return();
+/* RetroNest: frontend-provided default framebuffer (see libretro.c). */
+uint32_t get_retro_default_framebuffer(void);
 
 #define SDL_GetTicks() FAKE_SDL_TICKS
 

@@ -23,6 +23,7 @@ extern "C" {
 #endif
 uint32_t get_retro_screen_width();
 uint32_t get_retro_screen_height();
+uint32_t get_retro_default_framebuffer();
 #include <main/netplay.h>
 #ifdef __cplusplus
 }
@@ -204,5 +205,13 @@ void DisplayWindowMupen64plus::_readScreen2(void * _dest, int * _width, int * _h
 
 graphics::ObjectHandle DisplayWindowMupen64plus::_getDefaultFramebuffer()
 {
-	return graphics::ObjectHandle::null;
+	// RetroNest: return the frontend-provided framebuffer (SET_HW_RENDER's
+	// get_current_framebuffer) rather than 0. Upstream's 0 means "real FBO 0",
+	// which is only valid when the GL context has an on-screen drawable
+	// (RetroArch). RetroNest renders into an offscreen IOSurface-backed FBO and
+	// composites it with Metal; its context has no drawable, so rendering to
+	// real FBO 0 is discarded → black screen. Honors the standard libretro
+	// hardware-render contract. (Non-RetroNest hosts that pass 0 here are
+	// unaffected: get_retro_default_framebuffer() returns 0 in that case.)
+	return graphics::ObjectHandle(get_retro_default_framebuffer());
 }

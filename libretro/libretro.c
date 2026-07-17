@@ -2293,6 +2293,25 @@ uint32_t get_retro_screen_height()
     return retro_screen_height;
 }
 
+/* RetroNest: GLideN64 renders its final image to what DisplayWindow calls the
+ * "default framebuffer". Upstream returns 0 (real FBO 0), which only works when
+ * the libretro frontend's GL context has a real on-screen drawable (RetroArch).
+ * Frontends that render into an offscreen FBO provided via SET_HW_RENDER's
+ * get_current_framebuffer() (RetroNest composites that FBO's IOSurface with
+ * Metal) get a black screen, because FBO 0 on their context has no drawable.
+ * Expose the frontend-provided framebuffer so GLideN64 renders into it — the
+ * standard libretro hardware-render contract, and what every other GL core here
+ * already does. The GL path's SET_HW_RENDER callback is held by GLSM (the
+ * top-level `hw_render` here is the Vulkan/parallel-RDP one, absent unless
+ * HAVE_PARALLEL_RDP). This is only called while GLideN64 is active, i.e. after
+ * GLSM's CONTEXT_INIT has stored the host's callback, so it is set. A host that
+ * legitimately renders to real FBO 0 simply returns 0 from its own
+ * get_current_framebuffer(), so it is unaffected. */
+uint32_t get_retro_default_framebuffer()
+{
+    return (uint32_t)glsm_get_current_framebuffer();
+}
+
 static int GamesharkActive = 0;
 
 int event_gameshark_active(void)
