@@ -1217,12 +1217,6 @@ bool FrameBufferList::RdpUpdate::update(RdpUpdateResult & _result)
 		vres = PRESCALE_HEIGHT - v_start;
 
 	s32 vactivelines = static_cast<s32>(v_sync - (ispal ? 44 : 34));
-	{ static int n=0; if(n++<8) fprintf(stderr,
-		"[GLN64diag] VI: STATUS=0x%x vitype=%u ORIGIN=0x%x WIDTH=%u H_START=0x%x V_START=0x%x "
-		"V_SYNC=%u X_SCALE=0x%x Y_SCALE=0x%x | hres=%d vres=%d vactivelines=%d\n",
-		(unsigned)*REG.VI_STATUS, (unsigned)vitype, (unsigned)*REG.VI_ORIGIN, (unsigned)*REG.VI_WIDTH,
-		(unsigned)*REG.VI_H_START, (unsigned)*REG.VI_V_START, (unsigned)v_sync,
-		(unsigned)*REG.VI_X_SCALE, (unsigned)*REG.VI_Y_SCALE, (int)hres, (int)vres, (int)vactivelines); }
 	if (vactivelines > PRESCALE_HEIGHT) {
 		LOG(LOG_VERBOSE, "VI_V_SYNC_REG too big");
 		return false;
@@ -1470,22 +1464,18 @@ void FrameBufferList::OverscanBuffer::draw(u32 _fullHeight, bool _PAL)
 
 void FrameBufferList::renderBuffer()
 {
-	{ static int n=0; if(n++<8) fprintf(stderr,"[GLN64diag] renderBuffer entry FBemul=%d defFB=%u\n",
-		config.frameBufferEmulation.enable, (unsigned)(u32)graphics::ObjectHandle::defaultFramebuffer); }
 	if (g_debugger.isDebugMode()) {
 		g_debugger.draw();
 		return;
 	}
 
 	if (config.frameBufferEmulation.enable == 0) {
-		{ static int n=0; if(n++<4) fprintf(stderr,"[GLN64diag] path=FBemul_off _renderScreenSizeBuffer\n"); }
 		_renderScreenSizeBuffer();
 		return;
 	}
 
 	RdpUpdateResult rdpRes;
 	if (!m_rdpUpdate.update(rdpRes)) {
-		{ static int n=0; if(n++<4) fprintf(stderr,"[GLN64diag] path=rdpUpdate_FAIL clear+swap\n"); }
 		gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, ObjectHandle::defaultFramebuffer);
 		gfxContext.clearColorBuffer(0.0f, 0.0f, 0.0f, 0.0f);
 		dwnd().swapBuffers();
@@ -1495,11 +1485,8 @@ void FrameBufferList::renderBuffer()
 	}
 
 	FrameBuffer *pBuffer = findBuffer(rdpRes.vi_origin);
-	if (pBuffer == nullptr) {
-		{ static int n=0; if(n++<4) fprintf(stderr,"[GLN64diag] path=findBuffer_NULL vi_origin=%u no-present\n", (unsigned)rdpRes.vi_origin); }
+	if (pBuffer == nullptr)
 		return;
-	}
-	{ static int n=0; if(n++<4) fprintf(stderr,"[GLN64diag] path=MAIN present (reached full render)\n"); }
 	pBuffer->m_isMainBuffer = true;
 	m_overscan.setInputBuffer(pBuffer);
 
