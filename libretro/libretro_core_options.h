@@ -1387,11 +1387,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
 #endif
             { NULL, NULL },
         },
-#ifdef DYNAREC
-        "dynamic_recompiler"
-#else
-        "cached_interpreter"
-#endif
+        "pure_interpreter"  /* TEMP diag: force interpreter to test dynarec-under-Rosetta */
     },
     {
         CORE_NAME "-rsp-plugin",
