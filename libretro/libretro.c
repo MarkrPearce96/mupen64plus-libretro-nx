@@ -1399,6 +1399,7 @@ static void update_variables(bool startup)
           else if (!strcmp(var.value, "dynamic_recompiler"))
              r4300_emumode = EMUMODE_DYNAREC;
        }
+       r4300_emumode = EMUMODE_PURE_INTERPRETER; /* TEMP diag: force interpreter regardless of frontend option */
 
        var.key = CORE_NAME "-aspect";
        var.value = NULL;
