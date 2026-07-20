@@ -29,12 +29,19 @@ BufferedDrawer::BufferedDrawer(const GLInfo & _glinfo, CachedVertexAttribArray *
 	m_cachedAttribArray->enableVertexAttribArray(rectAttrib::position, true);
 	m_cachedAttribArray->enableVertexAttribArray(rectAttrib::texcoord0, true);
 	m_cachedAttribArray->enableVertexAttribArray(rectAttrib::texcoord1, true);
-	m_cachedAttribArray->enableVertexAttribArray(rectAttrib::barycoords, true);
 	glVertexAttribPointer(rectAttrib::position, 4, GL_FLOAT, GL_FALSE, sizeof(RectVertex), (const GLvoid *)(offsetof(RectVertex, x)));
 	glVertexAttribPointer(rectAttrib::texcoord0, 2, GL_FLOAT, GL_FALSE, sizeof(RectVertex), (const GLvoid *)(offsetof(RectVertex, s0)));
 	glVertexAttribPointer(rectAttrib::texcoord1, 2, GL_FLOAT, GL_FALSE, sizeof(RectVertex), (const GLvoid *)(offsetof(RectVertex, s1)));
-	if (_glinfo.coverage)
+	// barycoords must be enabled only when its pointer is also set: an
+	// enabled attrib without backing store makes every rect draw raise
+	// GL_INVALID_OPERATION on core-profile GL (macOS). Mirrors the
+	// triangleAttrib::barycoords handling below.
+	if (_glinfo.coverage) {
+		m_cachedAttribArray->enableVertexAttribArray(rectAttrib::barycoords, true);
 		glVertexAttribPointer(rectAttrib::barycoords, 2, GL_FLOAT, GL_FALSE, sizeof(RectVertex), (const GLvoid *)(offsetof(RectVertex, bc0)));
+	} else {
+		m_cachedAttribArray->enableVertexAttribArray(rectAttrib::barycoords, false);
+	}
 
 	/* Init buffers for triangles */
 	glGenVertexArrays(1, &m_trisBuffers.vao);
@@ -135,29 +142,12 @@ void BufferedDrawer::_updateRectBuffer(const graphics::Context::DrawRectParamete
 
 void BufferedDrawer::drawRects(const graphics::Context::DrawRectParameters & _params)
 {
-	/* TEMP DIAG (N64 black screen): pinpoint the GL_INVALID_OPERATION. */
-	static int s_diagCount = 0;
-	const bool diag = (s_diagCount++ % 120) == 0;
-	GLenum e0 = diag ? glGetError() : 0;
-
 	_updateRectBuffer(_params);
-	GLenum e1 = diag ? glGetError() : 0;
 
 	m_cachedAttribArray->enableVertexAttribArray(rectAttrib::texcoord0, _params.texrect);
 	m_cachedAttribArray->enableVertexAttribArray(rectAttrib::texcoord1, _params.texrect);
 
 	glDrawArrays(GLenum(_params.mode), m_rectsBuffers.vbo.pos - _params.verticesCount, _params.verticesCount);
-	if (diag) {
-		GLenum e2 = glGetError();
-		GLint vao = -1, prog = -1, arrBuf = -1, linked = -1;
-		glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
-		glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
-		glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &arrBuf);
-		if (prog > 0) glGetProgramiv((GLuint)prog, GL_LINK_STATUS, &linked);
-		fprintf(stderr, "[BufferedDrawer-DIAG] drawRects #%d pre=0x%x postUpdate=0x%x postDraw=0x%x vao=%d prog=%d linked=%d arrayBuf=%d rectVAO=%u\n",
-		        s_diagCount - 1, e0, e1, e2, vao, prog, linked, arrBuf,
-		        (unsigned)m_rectsBuffers.vao);
-	}
 }
 
 void BufferedDrawer::_convertFromSPVertex(bool _flatColors, u32 _count, const SPVertex * _data)

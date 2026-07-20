@@ -1032,31 +1032,12 @@ void rglFramebufferTexture(GLenum target, GLenum attachment,
  * Core in:
  * OpenGL    : 1.1
  */
-int g_glsmPresentDiag; /* TEMP DIAG: set by GLideN64 present path */
 void rglDrawArrays(GLenum mode, GLint first, GLsizei count)
 {
 #ifdef GLSM_DEBUG
    log_cb(RETRO_LOG_INFO, "glDrawArrays.\n");
 #endif
    bindFBO(GL_FRAMEBUFFER);
-   if (g_glsmPresentDiag) {
-      while (glGetError() != GL_NO_ERROR) {} /* drain */
-      GLint prog = -1, valid = -1, vao = -1;
-      glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
-      glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
-      char vlog[512] = {0};
-      if (prog > 0) {
-         glValidateProgram((GLuint)prog);
-         glGetProgramiv((GLuint)prog, GL_VALIDATE_STATUS, &valid);
-         glGetProgramInfoLog((GLuint)prog, sizeof(vlog) - 1, NULL, vlog);
-      }
-      GLenum eBefore = glGetError();
-      glDrawArrays(mode, first, count);
-      GLenum eAfter = glGetError();
-      fprintf(stderr, "[glsm-DIAG] present draw prog=%d validate=%d vao=%d errBefore=0x%x errAfter=0x%x mode=0x%x first=%d count=%d vlog='%s'\n",
-         prog, valid, vao, eBefore, eAfter, mode, first, count, vlog);
-      return;
-   }
    glDrawArrays(mode, first, count);
 }
 

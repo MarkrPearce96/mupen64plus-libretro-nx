@@ -1666,18 +1666,8 @@ bool GraphicsDrawer::isRejected(u32 _v0, u32 _v1, u32 _v2) const
 	return false;
 }
 
-#ifdef __APPLE__
-#include <OpenGL/gl3.h>
-bool g_diagPresentNow = false;
-#define PRESENT_DIAG(step) do { if (g_diagPresentNow) { GLenum e = glGetError(); \
-    if (e != GL_NO_ERROR) fprintf(stderr, "[copyTexturedRect-DIAG] err 0x%x after %s\n", e, step); } } while (0)
-#else
-#define PRESENT_DIAG(step) ((void)0)
-#endif
-
 void GraphicsDrawer::copyTexturedRect(const CopyRectParams & _params)
 {
-	PRESENT_DIAG("entry");
 	m_drawingState = DrawingState::Non;
 
 	const float scaleX = 1.0f / _params.dstWidth;
@@ -1749,11 +1739,9 @@ void GraphicsDrawer::copyTexturedRect(const CopyRectParams & _params)
 			texParams.wrapT = textureParameters::WRAP_CLAMP_TO_EDGE;
 		}
 		gfxContext.setTextureParameters(texParams);
-		PRESENT_DIAG("setTextureParameters");
 	}
 
 	gfxContext.setViewport(0, 0, static_cast<s32>(_params.dstWidth), static_cast<s32>(_params.dstHeight));
-	PRESENT_DIAG("setViewport");
 	gfxContext.enable(enable::CULL_FACE, false);
 	gfxContext.enable(enable::BLEND, false);
 
@@ -1772,10 +1760,8 @@ void GraphicsDrawer::copyTexturedRect(const CopyRectParams & _params)
 	rectParams.vertices = m_rect;
 	rectParams.combiner = _params.combiner;
 	_params.combiner->activate();
-	PRESENT_DIAG("combiner->activate");
 	gfxContext.enable(enable::SCISSOR_TEST, false);
 	gfxContext.drawRects(rectParams);
-	PRESENT_DIAG("drawRects");
 	gfxContext.enable(enable::SCISSOR_TEST, true);
 
 	gSP.changed |= CHANGED_GEOMETRYMODE | CHANGED_VIEWPORT;
