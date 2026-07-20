@@ -27,9 +27,15 @@
 #include <Graphics/Parameters.h>
 #include <Graphics/ColorBufferReader.h>
 #include "DisplayWindow.h"
+#ifdef __APPLE__
+#include <OpenGL/gl3.h> /* TEMP DIAG: direct glGetError */
+#endif
 
 using namespace std;
 using namespace graphics;
+#ifdef __APPLE__
+extern "C" int g_glsmPresentDiag;
+#endif
 
 FrameBuffer::FrameBuffer()
 	: m_copyFBO(ObjectHandle::defaultFramebuffer)
@@ -1464,6 +1470,13 @@ void FrameBufferList::OverscanBuffer::draw(u32 _fullHeight, bool _PAL)
 
 void FrameBufferList::renderBuffer()
 {
+	// Refresh the cached default-framebuffer handle every present. Under
+	// libretro the "default framebuffer" is the frontend's FBO, whose id is
+	// only reliable AFTER video start (DisplayWindow::start() latches this
+	// static too early and can bake in 0 = a black hole on an offscreen
+	// context) and may change when the frontend recreates its FBO.
+	dwnd().refreshDefaultFramebuffer();
+
 	if (g_debugger.isDebugMode()) {
 		g_debugger.draw();
 		return;
@@ -1475,7 +1488,18 @@ void FrameBufferList::renderBuffer()
 	}
 
 	RdpUpdateResult rdpRes;
+	// TEMP DIAG (N64 black screen): log the present decision every 120 calls.
+	static int s_diagCall = 0;
+	const bool s_diagNow = (s_diagCall++ % 120) == 0;
 	if (!m_rdpUpdate.update(rdpRes)) {
+		if (s_diagNow)
+			fprintf(stderr, "[GLideN64-DIAG] renderBuffer #%d: rdpUpdate FAIL defFB=%u"
+			        " VI: STATUS=%08x ORIGIN=%08x WIDTH=%08x H_START=%08x V_START=%08x"
+			        " V_SYNC=%08x X_SCALE=%08x Y_SCALE=%08x V_CURRENT=%08x\n",
+			        s_diagCall - 1, (unsigned)ObjectHandle::defaultFramebuffer,
+			        *REG.VI_STATUS, *REG.VI_ORIGIN, *REG.VI_WIDTH, *REG.VI_H_START,
+			        *REG.VI_V_START, *REG.VI_V_SYNC, *REG.VI_X_SCALE, *REG.VI_Y_SCALE,
+			        *REG.VI_V_CURRENT_LINE);
 		gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, ObjectHandle::defaultFramebuffer);
 		gfxContext.clearColorBuffer(0.0f, 0.0f, 0.0f, 0.0f);
 		dwnd().swapBuffers();
@@ -1485,6 +1509,10 @@ void FrameBufferList::renderBuffer()
 	}
 
 	FrameBuffer *pBuffer = findBuffer(rdpRes.vi_origin);
+	if (s_diagNow)
+		fprintf(stderr, "[GLideN64-DIAG] renderBuffer #%d: rdpUpdate OK vi_origin=%08x buffer=%s defFB=%u\n",
+		        s_diagCall - 1, rdpRes.vi_origin, pBuffer ? "FOUND" : "NULL",
+		        (unsigned)ObjectHandle::defaultFramebuffer);
 	if (pBuffer == nullptr)
 		return;
 	pBuffer->m_isMainBuffer = true;
@@ -1631,7 +1659,33 @@ void FrameBufferList::renderBuffer()
 	blitParams.readBuffer = readBuffer;
 	blitParams.invertY = config.frameBufferEmulation.enableOverscan == 0;
 
+	// Bust GLideN64's framebuffer bind-cache before the present blit. The
+	// cache tracks GL_DRAW_FRAMEBUFFER and GL_FRAMEBUFFER as separate slots,
+	// so after a frame of internal-buffer rendering the DRAW slot can hold a
+	// stale "already == default" entry while glsm's real bound FBO is the last
+	// N64 buffer. copyTexturedRect's rebind to the default framebuffer then
+	// gets skipped as redundant, and the blit lands in that N64 buffer FBO —
+	// whose color texture it is simultaneously sampling → GL feedback loop →
+	// GL_INVALID_OPERATION, discarded, so the frontend IOSurface stays black.
+	// Forcing a distinct bind first guarantees the default-FBO rebind issues.
+	// (macOS/RetroNest offscreen-IOSurface path; no-op cost elsewhere.)
+	gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, ObjectHandle::null);
+
+#ifdef __APPLE__
+	g_glsmPresentDiag = s_diagNow ? 1 : 0;
+#endif
 	drawer.copyTexturedRect(blitParams);
+#ifdef __APPLE__
+	g_glsmPresentDiag = 0;
+#endif
+#ifdef __APPLE__
+	if (s_diagNow)
+		fprintf(stderr, "[GLideN64-DIAG] post-copyTexturedRect glErr=0x%x combiner=%p src=%d,%d,%d,%d dst=%d,%d,%d,%d texW=%d texH=%d\n",
+		        glGetError(), (void*)blitParams.combiner,
+		        blitParams.srcX0, blitParams.srcY0, blitParams.srcX1, blitParams.srcY1,
+		        blitParams.dstX0, blitParams.dstY0, blitParams.dstX1, blitParams.dstY1,
+		        blitParams.srcWidth, blitParams.srcHeight);
+#endif
 
 	if (pNextBuffer != nullptr) {
 		pNextBuffer->m_isMainBuffer = true;

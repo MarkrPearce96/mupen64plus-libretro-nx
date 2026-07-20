@@ -10,6 +10,13 @@ public:
 	bool start();
 	void stop();
 	void restart();
+	// Re-queries the platform default framebuffer and refreshes the cached
+	// ObjectHandle::defaultFramebuffer static. Under libretro the "default"
+	// is the frontend's FBO, which is only reliable after video start and
+	// may change; callers on the present path use this to avoid a stale 0.
+	void refreshDefaultFramebuffer() {
+		graphics::ObjectHandle::defaultFramebuffer = _getDefaultFramebuffer();
+	}
 	void destroyGfxContext();
 	void reinitGfxContext();
 	void swapBuffers();

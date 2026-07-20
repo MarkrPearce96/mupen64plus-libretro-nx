@@ -18,6 +18,117 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
+#ifdef __MACH__
+/* Mach-O port (macOS arm64). THREE constraints shape this block:
+ * 1. Apple's arm64 assembler treats ';' as a COMMENT character (not a
+ *    statement separator), so each macro may emit only ONE statement —
+ *    visibility directives live in the explicit newline-separated list
+ *    below instead of inside the label macros.
+ * 2. C symbols carry a leading underscore: definitions paste it on
+ *    (`_##name` — token-pasted args are not macro-expanded, so the
+ *    reference renames below cannot corrupt definitions), references out
+ *    to C functions and intra-file branch targets are renamed by #define.
+ * 3. Conditional branches cannot target non-local (atom) symbols — the
+ *    three such sites use inverted-condition trampolines further down.
+ * No .hidden/.type/.size on Mach-O; .private_extern is the .hidden analog. */
+#define GLOBAL_FUNCTION(name) _##name
+#define LOCAL_FUNCTION(name)  _##name
+#define GLOBAL_VARIABLE(name, size_) .globl _##name
+
+/* Intra-file branch targets (the only two referenced by name). */
+#define jump_vaddr    _jump_vaddr
+#define new_dyna_stop _new_dyna_stop
+
+/* C functions called from this file. */
+#define get_addr_ht           _get_addr_ht
+#define verify_dirty          _verify_dirty
+#define get_addr              _get_addr
+#define dynarec_gen_interrupt _dynarec_gen_interrupt
+#define cop1_unusable         _cop1_unusable
+#define SYSCALL_new           _SYSCALL_new
+#define ERET_new              _ERET_new
+#define dynamic_linker        _dynamic_linker
+#define dynamic_linker_ds     _dynamic_linker_ds
+#define new_recompile_block   _new_recompile_block
+
+.globl _jump_vaddr_x0
+.private_extern _jump_vaddr_x0
+.globl _jump_vaddr_x1
+.private_extern _jump_vaddr_x1
+.globl _jump_vaddr_x2
+.private_extern _jump_vaddr_x2
+.globl _jump_vaddr_x3
+.private_extern _jump_vaddr_x3
+.globl _jump_vaddr_x4
+.private_extern _jump_vaddr_x4
+.globl _jump_vaddr_x5
+.private_extern _jump_vaddr_x5
+.globl _jump_vaddr_x6
+.private_extern _jump_vaddr_x6
+.globl _jump_vaddr_x7
+.private_extern _jump_vaddr_x7
+.globl _jump_vaddr_x8
+.private_extern _jump_vaddr_x8
+.globl _jump_vaddr_x9
+.private_extern _jump_vaddr_x9
+.globl _jump_vaddr_x10
+.private_extern _jump_vaddr_x10
+.globl _jump_vaddr_x11
+.private_extern _jump_vaddr_x11
+.globl _jump_vaddr_x12
+.private_extern _jump_vaddr_x12
+.globl _jump_vaddr_x13
+.private_extern _jump_vaddr_x13
+.globl _jump_vaddr_x14
+.private_extern _jump_vaddr_x14
+.globl _jump_vaddr_x15
+.private_extern _jump_vaddr_x15
+.globl _jump_vaddr_x16
+.private_extern _jump_vaddr_x16
+.globl _jump_vaddr_x17
+.private_extern _jump_vaddr_x17
+.globl _jump_vaddr_x19
+.private_extern _jump_vaddr_x19
+.globl _jump_vaddr_x21
+.private_extern _jump_vaddr_x21
+.globl _jump_vaddr_x22
+.private_extern _jump_vaddr_x22
+.globl _jump_vaddr_x23
+.private_extern _jump_vaddr_x23
+.globl _jump_vaddr_x24
+.private_extern _jump_vaddr_x24
+.globl _jump_vaddr_x25
+.private_extern _jump_vaddr_x25
+.globl _jump_vaddr_x26
+.private_extern _jump_vaddr_x26
+.globl _jump_vaddr_x27
+.private_extern _jump_vaddr_x27
+.globl _jump_vaddr_x28
+.private_extern _jump_vaddr_x28
+.globl _jump_vaddr
+.private_extern _jump_vaddr
+.globl _verify_code
+.private_extern _verify_code
+.globl _cc_interrupt
+.private_extern _cc_interrupt
+.globl _do_interrupt
+.private_extern _do_interrupt
+.globl _fp_exception
+.private_extern _fp_exception
+.globl _jump_syscall
+.private_extern _jump_syscall
+.globl _jump_eret
+.private_extern _jump_eret
+.globl _dyna_linker
+.private_extern _dyna_linker
+.globl _dyna_linker_ds
+.private_extern _dyna_linker_ds
+.globl _new_dyna_start
+.private_extern _new_dyna_start
+.globl _breakpoint
+.private_extern _breakpoint
+
+#else
 #define GLOBAL_FUNCTION(name)  \
     .globl name;               \
     .hidden name;              \
@@ -34,6 +145,7 @@
     .hidden name;                    \
     .type   name, %object;           \
     .size   name, size_
+#endif
 
 .macro movl Wn, imm
     movz    \Wn, (\imm >> 16) & 0xFFFF, lsl 16
@@ -188,7 +300,13 @@ GLOBAL_FUNCTION(cc_interrupt):
     ldr    w1, [x29, #fp_pending_exception]
     ldr    w2, [x29, #fp_stop]
     tst    w2, w2
+#ifdef __MACH__
+    b.eq   1f
+    b      new_dyna_stop
+1:
+#else
     b.ne   new_dyna_stop
+#endif
     tst    w1, w1
     b.ne   .E1
     ret
@@ -210,7 +328,13 @@ LOCAL_FUNCTION(new_dyna_stop):
 GLOBAL_FUNCTION(do_interrupt):
     ldr    w2, [x29, #fp_stop]
     tst    w2, w2
+#ifdef __MACH__
+    b.eq   1f
+    b      new_dyna_stop
+1:
+#else
     b.ne   new_dyna_stop
+#endif
     ldr    w0, [x29, #fp_pcaddr]
     bl     get_addr_ht
     ldr    w20, [x29, #fp_cycle_count]
@@ -231,7 +355,13 @@ GLOBAL_FUNCTION(jump_eret):
     bl     ERET_new
     ldr    w20, [x29, #fp_cycle_count]
     tst    w0, w0
+#ifdef __MACH__
+    b.ne   1f
+    b      new_dyna_stop
+1:
+#else
     b.eq   new_dyna_stop
+#endif
     br     x0
 
 GLOBAL_FUNCTION(dyna_linker):
@@ -243,12 +373,24 @@ GLOBAL_FUNCTION(dyna_linker_ds):
     br     x0
 
 GLOBAL_FUNCTION(new_dyna_start):
+#ifdef __MACH__
+    /* Mach-O spells page-relative relocations @PAGE/@PAGEOFF (ELF: :lo12:),
+     * and the C globals carry the leading underscore. */
+    adrp   x16, _g_dev@PAGE
+    add    x16, x16, _g_dev@PAGEOFF
+#else
     adrp   x16, g_dev
     add    x16, x16, :lo12:g_dev
+#endif
     movl   x1, (device_r4300_new_dynarec_hot_state_dynarec_local + saved_context)
     add    x16, x16, x1
+#ifdef __MACH__
+    adrp   x1, _base_addr_rx@PAGE
+    add    x1, x1, _base_addr_rx@PAGEOFF
+#else
     adrp   x1, base_addr_rx
     add    x1, x1, :lo12:base_addr_rx
+#endif
     mov    w0, #0xa4000000
     stp    x19,x20,[x16,#0]
     stp    x21,x22,[x16,#16]

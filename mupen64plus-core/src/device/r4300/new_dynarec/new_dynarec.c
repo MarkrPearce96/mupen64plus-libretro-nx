@@ -68,6 +68,21 @@ void recomp_dbg_block(int addr);
 #include "arm/assem_arm.h"
 #elif  NEW_DYNAREC == NEW_DYNAREC_ARM64
 #include "arm64/assem_arm64.h"
+
+#if defined(__APPLE__) && defined(__aarch64__)
+/* macOS arm64 W^X: the code cache is one MAP_JIT mapping, and every write
+ * to it must happen inside a jit_write_begin()/jit_write_end() pair, which
+ * toggles this thread between write-and-no-exec and exec-and-no-write
+ * (pthread_jit_write_protect_np). Depth-counted so nested writers
+ * (set_jump_target inside new_recompile_block) stay balanced. */
+#include <pthread.h>
+static __thread int g_jit_write_depth;
+static void jit_write_begin(void) { if (g_jit_write_depth++ == 0) pthread_jit_write_protect_np(0); }
+static void jit_write_end(void)   { if (--g_jit_write_depth == 0) pthread_jit_write_protect_np(1); }
+#else
+#define jit_write_begin() ((void)0)
+#define jit_write_end()   ((void)0)
+#endif
 #else
 #error Unsupported dynarec architecture
 #endif
@@ -8652,6 +8667,13 @@ void new_dynarec_init(void)
 // Default to fixed cache address
 #ifdef HAVE_LIBNX
 #define CACHE_ADDR DOUBLE_CACHE_ADDR
+#elif defined(__APPLE__) && defined(__aarch64__)
+// macOS on arm64 forbids plain writable+executable pages (FIXED's
+// mprotect-to-RWX fails unchecked) AND refuses to execute shared
+// file-backed mappings (shm dual-view faults on first execute), so the
+// DOUBLE branch has an Apple sub-path: one MAP_JIT mapping + per-thread
+// W^X toggling; base_addr == base_addr_rx.
+#define CACHE_ADDR DOUBLE_CACHE_ADDR
 #else
 #define CACHE_ADDR FIXED_CACHE_ADDR
 #endif
@@ -8665,6 +8687,21 @@ void new_dynarec_init(void)
   #include <sys/types.h>
   #include <fcntl.h>
 
+#if defined(__APPLE__)
+  // macOS arm64 refuses to EXECUTE any shared file-backed mapping (a shm
+  // dual-view faults KERN_PROTECTION_FAILURE on the first executed page —
+  // verified empirically), so the sanctioned JIT pattern is the only one
+  // available: a single MAP_JIT RWX mapping with per-thread W^X toggling
+  // around every cache write (see jit_write_begin/end at the top of this
+  // file). base_addr == base_addr_rx keeps the DOUBLE-mode offset math
+  // no-op. MAP_JIT needs no entitlement in non-hardened builds; hardened
+  // hosts (RetroNest) already ship com.apple.security.cs.allow-jit.
+  base_addr = mmap(NULL, 1<<TARGET_SIZE_2,
+                 PROT_READ | PROT_WRITE | PROT_EXEC,
+                 MAP_PRIVATE | MAP_ANONYMOUS | MAP_JIT, -1, 0);
+  assert(base_addr!=(void*)-1);
+  base_addr_rx = base_addr;
+#else
   int fd = shm_open("/new_dynarec", O_RDWR | O_CREAT | O_EXCL, 0600);
   assert(fd!=-1);
   shm_unlink("/new_dynarec");
@@ -8681,6 +8718,7 @@ void new_dynarec_init(void)
 
   assert(base_addr_rx!=(void*)-1);
   close(fd);
+#endif
 #endif // HAVE_LIBNX
 #elif CACHE_ADDR==FIXED_CACHE_ADDR
   mprotect ((u_char *)g_dev.r4300.extra_memory, 1<<TARGET_SIZE_2,
@@ -8783,6 +8821,7 @@ void new_dynarec_cleanup(void)
 
 int new_recompile_block(int addr)
 {
+  jit_write_begin();
 #if defined(RECOMPILER_DEBUG) && !defined(RECOMP_DBG)
   recomp_dbg_block(addr);
 #endif
@@ -8825,6 +8864,7 @@ int new_recompile_block(int addr)
     else {
       assem_debug("Compile at unmapped memory address: %x ", (int)addr);
       //assem_debug("start: %x next: %x",g_dev.r4300.new_dynarec_hot_state.memory_map[start>>12],g_dev.r4300.new_dynarec_hot_state.memory_map[(start+4096)>>12]);
+      jit_write_end();
       return 1; // Caller will invoke exception handler
     }
     //DebugMessage(M64MSG_VERBOSE, "source= %x",(intptr_t)source);
@@ -11909,5 +11949,6 @@ int new_recompile_block(int addr)
     }
     expirep=(expirep+1)&65535;
   }
+  jit_write_end();
   return 0;
 }

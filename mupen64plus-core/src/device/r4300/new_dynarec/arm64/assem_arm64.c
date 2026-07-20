@@ -18,6 +18,10 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
+#ifdef __APPLE__
+#include <libkern/OSCacheControl.h> /* sys_icache_invalidate (see cache_flush) */
+#endif
+
 #define fp_cycle_count         (offsetof(struct new_dynarec_hot_state, cycle_count))
 #define fp_invc_ptr            (offsetof(struct new_dynarec_hot_state, invc_ptr))
 #define fp_fcr31               (offsetof(struct new_dynarec_hot_state, cp1_fcr31))
@@ -263,7 +267,12 @@ static uintptr_t jump_table_symbols[] = {
 
 static void cache_flush(char* start, char* end)
 {
-#ifndef WIN32
+#if defined(__APPLE__)
+    // macOS traps EL0 reads of ctr_el0 (SIGILL) — Linux emulates them, XNU
+    // does not. Use the libkern cache-maintenance API instead; it performs
+    // the correct dcache-clean + icache-invalidate for JIT'd code.
+    sys_icache_invalidate(start, (size_t)(end - start));
+#elif !defined(WIN32)
     // Don't rely on GCC's __clear_cache implementation, as it caches
     // icache/dcache cache line sizes, that can vary between cores on
     // big.LITTLE architectures.
@@ -304,6 +313,8 @@ static void set_jump_target(intptr_t addr,uintptr_t target)
   if(!ptr) // Indiana Jones is weird
     return;
 
+  jit_write_begin(); // patches existing code in the MAP_JIT cache (Apple W^X)
+
   if((*ptr&0xFC000000)==0x14000000) {
     assert(offset>=-134217728LL&&offset<134217728LL);
     *ptr=(*ptr&0xFC000000)|((offset>>2)&0x3ffffff);
@@ -323,6 +334,7 @@ static void set_jump_target(intptr_t addr,uintptr_t target)
   }
   else
     assert(0); /*Should not happen*/
+  jit_write_end();
 }
 
 /* Literal pool */
@@ -4604,6 +4616,7 @@ static void arch_init(void) {
   jump_table_symbols[9] = (intptr_t)cached_interp_DDIVU;
 
   // Trampolines for jumps >128MB
+  jit_write_begin(); // writes veneers into the MAP_JIT cache (Apple W^X)
   intptr_t *ptr,*ptr2,*ptr3;
   ptr=(intptr_t *)jump_table_symbols;
   ptr2=(intptr_t *)((char *)base_addr+(1<<TARGET_SIZE_2)-JUMP_TABLE_SIZE);
@@ -4625,5 +4638,6 @@ static void arch_init(void) {
     ptr3+=2;
   }
 
+  jit_write_end();
   __clear_cache((char *)base_addr+(1<<TARGET_SIZE_2)-JUMP_TABLE_SIZE,(char *)base_addr+(1<<TARGET_SIZE_2));
 }

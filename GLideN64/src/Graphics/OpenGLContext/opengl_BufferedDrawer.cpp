@@ -135,12 +135,29 @@ void BufferedDrawer::_updateRectBuffer(const graphics::Context::DrawRectParamete
 
 void BufferedDrawer::drawRects(const graphics::Context::DrawRectParameters & _params)
 {
+	/* TEMP DIAG (N64 black screen): pinpoint the GL_INVALID_OPERATION. */
+	static int s_diagCount = 0;
+	const bool diag = (s_diagCount++ % 120) == 0;
+	GLenum e0 = diag ? glGetError() : 0;
+
 	_updateRectBuffer(_params);
+	GLenum e1 = diag ? glGetError() : 0;
 
 	m_cachedAttribArray->enableVertexAttribArray(rectAttrib::texcoord0, _params.texrect);
 	m_cachedAttribArray->enableVertexAttribArray(rectAttrib::texcoord1, _params.texrect);
 
 	glDrawArrays(GLenum(_params.mode), m_rectsBuffers.vbo.pos - _params.verticesCount, _params.verticesCount);
+	if (diag) {
+		GLenum e2 = glGetError();
+		GLint vao = -1, prog = -1, arrBuf = -1, linked = -1;
+		glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
+		glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
+		glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &arrBuf);
+		if (prog > 0) glGetProgramiv((GLuint)prog, GL_LINK_STATUS, &linked);
+		fprintf(stderr, "[BufferedDrawer-DIAG] drawRects #%d pre=0x%x postUpdate=0x%x postDraw=0x%x vao=%d prog=%d linked=%d arrayBuf=%d rectVAO=%u\n",
+		        s_diagCount - 1, e0, e1, e2, vao, prog, linked, arrBuf,
+		        (unsigned)m_rectsBuffers.vao);
+	}
 }
 
 void BufferedDrawer::_convertFromSPVertex(bool _flatColors, u32 _count, const SPVertex * _data)

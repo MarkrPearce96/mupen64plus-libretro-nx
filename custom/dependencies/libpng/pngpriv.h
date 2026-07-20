@@ -508,8 +508,14 @@
     */
 #  include <float.h>
 
+   /* defined(TARGET_OS_MAC) alone is NOT "classic Mac OS": any modern Apple
+    * SDK header chain that pulls in TargetConditionals.h defines it (newer
+    * SDKs do this more eagerly, e.g. Xcode 26), and <fp.h> has not existed
+    * for decades — modern macOS must take the <math.h> branch.
+    */
 #  if (defined(__MWERKS__) && defined(macintosh)) || defined(applec) || \
-    defined(THINK_C) || defined(__SC__) || defined(TARGET_OS_MAC)
+    defined(THINK_C) || defined(__SC__) || \
+    (defined(TARGET_OS_MAC) && !defined(__APPLE__))
    /* We need to check that <math.h> hasn't already been included earlier
     * as it seems it doesn't agree with <fp.h>, yet we should really use
     * <fp.h> if possible.

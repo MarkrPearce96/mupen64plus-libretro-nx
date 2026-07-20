@@ -118,7 +118,11 @@ extern z_const char * const z_errmsg[10]; /* indexed by 2-zlib_error */
 #  endif
 #endif
 
-#if defined(MACOS) || defined(TARGET_OS_MAC)
+/* defined(TARGET_OS_MAC) alone is NOT "classic Mac OS": any modern Apple SDK
+ * header chain that pulls in TargetConditionals.h defines it (newer SDKs do
+ * this more eagerly, e.g. Xcode 26). Modern macOS has fdopen(); defining it
+ * away breaks the SDK's own <stdio.h> prototype. Same fix as pngpriv.h. */
+#if defined(MACOS) || (defined(TARGET_OS_MAC) && !defined(__APPLE__))
 #  define OS_CODE  0x07
 #  ifndef Z_SOLO
 #    if defined(__MWERKS__) && __dest_os != __be_os && __dest_os != __win32_os
