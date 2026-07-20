@@ -1,25 +1,29 @@
 name: libretro_release
 
 # Builds the mupen64plus_next_libretro core on tag push and publishes a PUBLIC
-# GitHub Release with the macOS x86_64 dylib (built with the x64 recompiler).
+# GitHub Release with a UNIVERSAL (arm64 + x86_64) macOS dylib — one zip under
+# the historical asset name, per RetroNest's standing universal-cores policy.
 #
-# mupen64plus-next is a STOCK upstream core for RetroNest — we carry ZERO
-# source patches. The N64 recompiler is enabled purely via BUILD FLAGS:
-#   * WITH_DYNAREC=x86_64  → NEW_DYNAREC=2, x64/linkage_x64.asm (the 64-bit
-#     recompiler). Upstream's osx block disables the dynarec by default
-#     (WITH_DYNAREC empty); we override it on the command line.
-#   * ASFLAGS="-f macho64 -DLEADING_UNDERSCORE" → the Makefile has no macho
-#     case (it would emit -f elf on osx). The x64 asm's cglobal/cextern macros
-#     only prepend the mach-o leading underscore when LEADING_UNDERSCORE is
-#     defined; without it every recompiler symbol (jump_vaddr_*, cc_interrupt,
-#     new_dyna_start, base_addr, ERET_new, …) links as the wrong name and the
-#     final dylib fails with "Undefined symbols for architecture x86_64".
+# Slices (both built on one macos-14 Apple Silicon runner, sequentially, with
+# a full *.o clean between — the Makefile builds objects in-tree and the
+# linker silently drops wrong-arch leftovers):
+#   * arm64  — WITH_DYNAREC=aarch64: the new_dynarec aarch64 recompiler with
+#     this fork's Darwin support (Mach-O port of linkage_arm64.S, MAP_JIT W^X
+#     with per-thread write protection, x18 excluded from register allocation,
+#     per-target far-jump veneer scratch).
+#   * x86_64 — WITH_DYNAREC=x86_64 under Rosetta: the x64 recompiler.
+#     ASFLAGS="-f macho64 -DLEADING_UNDERSCORE" is load-bearing: the x64
+#     asm's cglobal/cextern macros only prepend the mach-o leading underscore
+#     when LEADING_UNDERSCORE is defined; without it every recompiler symbol
+#     links under the wrong name ("Undefined symbols for architecture x86_64").
 #
-# x86_64-only (like pcsx2/dolphin): RetroNest's daily driver is x86_64 under
-# Rosetta, and the recompiler's RWX mmap/mprotect JIT model works there with
-# RetroNest's allow-jit entitlement (same as PCSX2/DuckStation). A native
-# arm64 build would run interpreter-only (macOS strict W^X needs MAP_JIT,
-# which this core doesn't do) — deferred until native-arm64 mode is unblocked.
+# Both slices rely on the Makefile defining NO_ASM only when WITH_DYNAREC is
+# empty: an unconditional NO_ASM compiles out the EMUMODE_DYNAREC branch of
+# generic_jump_to() and the guest wedges (EXL stuck) at the first exception.
+#
+# The dylib links only system frameworks (OpenGL/AudioToolbox/libc++), so
+# there is no dep-bundling or lib-set parity step — a plain pairwise lipo of
+# the two dylibs is the whole merge.
 #
 # The libretro entry-point asset RetroNest matches is any `*.dylib.zip`
 # (base LibretroAdapter rule), so the zip is mupen64plus_next_libretro.dylib.zip.
@@ -35,11 +39,9 @@ permissions:
 
 jobs:
   build:
-    name: Build macOS x86_64 (x64 recompiler)
-    # macos-14 = Apple Silicon + Rosetta. We build under arch -x86_64 with
-    # x86_64 Homebrew at /usr/local so the dylib (and its recompiler) is x86_64.
+    name: Build macOS universal (arm64 + x86_64 recompilers)
     runs-on: macos-14
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,6 +52,23 @@ jobs:
         # mapping; a default (non-recursive) checkout leaves it as an empty
         # placeholder, which is fine — paraLLEl is Vulkan-only and disabled
         # below (HAVE_PARALLEL_RSP/RDP=0).
+
+      - name: Build arm64 slice (aarch64 recompiler)
+        run: |
+          NCPU=$(sysctl -n hw.ncpu)
+          echo "Building arm64 with -j$NCPU"
+          make platform=osx \
+               WITH_DYNAREC=aarch64 \
+               HAVE_PARALLEL_RSP=0 \
+               HAVE_PARALLEL_RDP=0 \
+               -j"$NCPU"
+          lipo -info mupen64plus_next_libretro.dylib
+          lipo -info mupen64plus_next_libretro.dylib | grep -q 'arm64'
+          mkdir -p stage
+          mv mupen64plus_next_libretro.dylib stage/mupen64plus_next_libretro-arm64.dylib
+
+      - name: Clean objects between arch builds
+        run: find . -name '*.o' -delete
 
       - name: Install Rosetta 2
         run: softwareupdate --install-rosetta --agree-to-license || true
@@ -65,19 +84,14 @@ jobs:
 
       - name: Install build deps (x86_64)
         run: |
-          # nasm assembles x64/linkage_x64.asm (the recompiler). Others are
-          # only pulled in if a submodule needs them — start minimal and add
-          # on CI feedback.
+          # nasm assembles x64/linkage_x64.asm (the x64 recompiler).
           arch -x86_64 /usr/local/bin/brew update
           arch -x86_64 /usr/local/bin/brew install nasm
 
-      - name: Build (arch -x86_64, Makefile, x64 recompiler)
+      - name: Build x86_64 slice (arch -x86_64, x64 recompiler)
         run: |
           NCPU=$(sysctl -n hw.ncpu)
           echo "Building x86_64 with -j$NCPU (nasm $(arch -x86_64 /usr/local/bin/nasm -v))"
-          # HAVE_PARALLEL_RSP/RDP=0: paraLLEl is Vulkan-only and not fetched
-          # (see checkout). macOS uses GLideN64 (GL) + HLE RSP — the standard
-          # macOS N64 config.
           arch -x86_64 env \
             PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin \
             make platform=osx \
@@ -87,21 +101,34 @@ jobs:
                  HAVE_PARALLEL_RSP=0 \
                  HAVE_PARALLEL_RDP=0 \
                  -j"$NCPU"
+          lipo -info mupen64plus_next_libretro.dylib
+          lipo -info mupen64plus_next_libretro.dylib | grep -q 'x86_64'
+          mv mupen64plus_next_libretro.dylib stage/mupen64plus_next_libretro-x86_64.dylib
 
-      - name: Verify x86_64 dylib + libretro symbols
+      - name: Lipo universal + verify
         run: |
           set -euo pipefail
-          DYLIB="$(find . -maxdepth 2 -name 'mupen64plus_next_libretro.dylib' -type f | head -1)"
-          test -n "$DYLIB"
-          echo "dylib: $DYLIB"
-          file "$DYLIB"
-          lipo -info "$DYLIB"
-          lipo -info "$DYLIB" | grep -q 'x86_64'
-          RETRO_COUNT=$(nm -gU "$DYLIB" 2>/dev/null | grep -c '_retro_' || true)
-          echo "Found $RETRO_COUNT exported _retro_* symbols"
-          test "$RETRO_COUNT" -ge 20
-          mkdir -p stage
-          cp "$DYLIB" stage/mupen64plus_next_libretro.dylib
+          lipo -create \
+            stage/mupen64plus_next_libretro-arm64.dylib \
+            stage/mupen64plus_next_libretro-x86_64.dylib \
+            -output stage/mupen64plus_next_libretro.dylib
+          codesign --force --sign - stage/mupen64plus_next_libretro.dylib
+          file stage/mupen64plus_next_libretro.dylib
+          lipo -info stage/mupen64plus_next_libretro.dylib
+          lipo -info stage/mupen64plus_next_libretro.dylib | grep -q 'arm64'
+          lipo -info stage/mupen64plus_next_libretro.dylib | grep -q 'x86_64'
+          # Per-slice libretro entry points.
+          for A in arm64 x86_64; do
+            N=$(nm -arch "$A" -gU stage/mupen64plus_next_libretro.dylib 2>/dev/null | grep -c '_retro_' || true)
+            echo "$A: $N exported _retro_* symbols"
+            test "$N" -ge 20
+          done
+          # Universal-policy gate: no Homebrew/local dylib references.
+          if otool -L stage/mupen64plus_next_libretro.dylib | grep -E '/usr/local/|/opt/homebrew/'; then
+            echo "ERROR: dylib references Homebrew paths"; exit 1
+          fi
+          rm stage/mupen64plus_next_libretro-arm64.dylib \
+             stage/mupen64plus_next_libretro-x86_64.dylib
 
       - name: Upload dylib artifact
         uses: actions/upload-artifact@v4
@@ -131,8 +158,8 @@ jobs:
       - name: Compose release body
         run: |
           {
-            echo "**Platform:** macOS x86_64 (Rosetta) — built with the x64 recompiler."
-            echo "**Stock upstream core** — no RetroNest source patches (recompiler enabled via build flags)."
+            echo "**Platform:** macOS UNIVERSAL (arm64 + x86_64) — native aarch64 recompiler on Apple Silicon, x64 recompiler under Rosetta/Intel."
+            echo "**Fork patches:** Darwin arm64 dynarec support (Mach-O linkage port, MAP_JIT W^X, x18 exclusion, NO_ASM dispatch fix) + GLideN64 present fixes for core-profile GL frontends."
           } > release_body.md
 
       - name: Publish release
