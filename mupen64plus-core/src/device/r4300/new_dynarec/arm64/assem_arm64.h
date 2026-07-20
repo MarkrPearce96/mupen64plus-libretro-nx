@@ -6,6 +6,16 @@
 #define HOST_BTREG 19 /* callee-save */
 #define EXCLUDE_REG 29 /* FP */
 
+/* On Apple arm64 the kernel does not preserve x18 for userspace (it is
+ * trashed on any kernel entry), so no live value may ever be kept in it:
+ * exclude it from the register allocation pool. Elsewhere only FP is
+ * excluded, as upstream. */
+#if defined(__APPLE__)
+#define EXCLUDED_HOST_REG(hr) ((hr)==EXCLUDE_REG||(hr)==18)
+#else
+#define EXCLUDED_HOST_REG(hr) ((hr)==EXCLUDE_REG)
+#endif
+
 //#define DISABLE_BLOCK_LINKING 1
 #define NATIVE_64 1
 #define HOST_IMM8 1

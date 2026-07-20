@@ -451,7 +451,7 @@ static void alloc_reg(struct regstat *cur,int i,signed char tr)
   // registers that have not been used recently.
   if(i>0) {
     for(hr=0;hr<HOST_REGS;hr++) {
-      if(hr!=EXCLUDE_REG&&cur->regmap[hr]==-1) {
+      if(!EXCLUDED_HOST_REG(hr)&&cur->regmap[hr]==-1) {
         if(regs[i-1].regmap[hr]!=rs1[i-1]&&regs[i-1].regmap[hr]!=rs2[i-1]&&regs[i-1].regmap[hr]!=rt1[i-1]&&regs[i-1].regmap[hr]!=rt2[i-1]) {
           cur->regmap[hr]=tr;
           cur->dirty&=~(1<<hr);
@@ -463,7 +463,7 @@ static void alloc_reg(struct regstat *cur,int i,signed char tr)
   }
   // Try to allocate any available register
   for(hr=0;hr<HOST_REGS;hr++) {
-    if(hr!=EXCLUDE_REG&&cur->regmap[hr]==-1) {
+    if(!EXCLUDED_HOST_REG(hr)&&cur->regmap[hr]==-1) {
       cur->regmap[hr]=tr;
       cur->dirty&=~(1<<hr);
       cur->isconst&=~(1<<hr);
@@ -615,7 +615,7 @@ static void alloc_reg64(struct regstat *cur,int i,signed char tr)
   // registers that have not been used recently.
   if(i>0) {
     for(hr=0;hr<HOST_REGS;hr++) {
-      if(hr!=EXCLUDE_REG&&cur->regmap[hr]==-1) {
+      if(!EXCLUDED_HOST_REG(hr)&&cur->regmap[hr]==-1) {
         if(regs[i-1].regmap[hr]!=rs1[i-1]&&regs[i-1].regmap[hr]!=rs2[i-1]&&regs[i-1].regmap[hr]!=rt1[i-1]&&regs[i-1].regmap[hr]!=rt2[i-1]) {
           cur->regmap[hr]=tr|64;
           cur->dirty&=~(1<<hr);
@@ -627,7 +627,7 @@ static void alloc_reg64(struct regstat *cur,int i,signed char tr)
   }
   // Try to allocate any available register
   for(hr=0;hr<HOST_REGS;hr++) {
-    if(hr!=EXCLUDE_REG&&cur->regmap[hr]==-1) {
+    if(!EXCLUDED_HOST_REG(hr)&&cur->regmap[hr]==-1) {
       cur->regmap[hr]=tr|64;
       cur->dirty&=~(1<<hr);
       cur->isconst&=~(1<<hr);
@@ -726,12 +726,12 @@ static void alloc_reg_temp(struct regstat *cur,int i,signed char tr)
   // see if it's already allocated
   for(hr=0;hr<HOST_REGS;hr++)
   {
-    if(hr!=EXCLUDE_REG&&cur->regmap[hr]==tr) return;
+    if(!EXCLUDED_HOST_REG(hr)&&cur->regmap[hr]==tr) return;
   }
 
   // Try to allocate any available register
   for(hr=HOST_REGS-1;hr>=0;hr--) {
-    if(hr!=EXCLUDE_REG&&cur->regmap[hr]==-1) {
+    if(!EXCLUDED_HOST_REG(hr)&&cur->regmap[hr]==-1) {
       cur->regmap[hr]=tr;
       cur->dirty&=~(1<<hr);
       cur->isconst&=~(1<<hr);
@@ -845,7 +845,7 @@ static void alloc_arm64_reg(struct regstat *cur,int i,signed char tr,int hr)
   // see if it's already allocated (and dealloc it)
   for(n=0;n<HOST_REGS;n++)
   {
-    if(n!=EXCLUDE_REG&&cur->regmap[n]==tr) {
+    if(!EXCLUDED_HOST_REG(n)&&cur->regmap[n]==tr) {
       dirty=(cur->dirty>>n)&1;
       cur->regmap[n]=-1;
     }
@@ -4628,8 +4628,19 @@ static void arch_init(void) {
     if(offset>=-134217728LL&&offset<134217728LL) {
       *ptr4=0x14000000|((offset>>2)&0x3ffffff); // direct branch
     }else{
+#if defined(__APPLE__)
+      /* x18 is kernel-trashed on Apple, so it cannot carry the veneer
+       * target. x17 (IP1) is safe for every target EXCEPT jump_vaddr_x17,
+       * which reads its guest jump address from x17 — that one veneer uses
+       * x16 instead. (No target reads both IP registers; upstream used x18
+       * precisely because jump_vaddr_x18 does not exist.) */
+      int scratch=(*ptr==(intptr_t)jump_vaddr_x17)?16:17;
+      *ptr4=0x58000000|((8>>2)<<5)|scratch; // ldr x<scratch>,[pc,#8]
+      *(ptr4+1)=0xd61f0000|(scratch<<5);    // br x<scratch>
+#else
       *ptr4=0x58000000|((8>>2)<<5)|18; // ldr x18,[pc,#8]
       *(ptr4+1)=0xd61f0000|(18<<5);
+#endif
     }
     ptr2++;
     *ptr2=*ptr;

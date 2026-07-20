@@ -404,7 +404,13 @@ else ifneq (,$(findstring osx,$(platform)))
         LDFLAGS += -mmacosx-version-min=10.7
    LDFLAGS += -stdlib=libc++
 
-   PLATCFLAGS += -D__MACOSX__ -DOSX -DOS_MAC_OS_X -DHAVE_UNISTD_H=1 -DHAVE_POSIX_MEMALIGN -DNO_ASM -DGL_SILENCE_DEPRECATION=1
+   PLATCFLAGS += -D__MACOSX__ -DOSX -DOS_MAC_OS_X -DHAVE_UNISTD_H=1 -DHAVE_POSIX_MEMALIGN -DGL_SILENCE_DEPRECATION=1
+   # NO_ASM must NOT be defined when a dynarec is built: it compiles out the
+   # EMUMODE_DYNAREC branch of generic_jump_to() (r4300_core.c), so exception
+   # dispatch to 0x80000180 silently no-ops and the guest wedges with EXL set.
+   ifeq ($(WITH_DYNAREC),)
+      PLATCFLAGS += -DNO_ASM
+   endif
    GL_LIB := -framework OpenGL
    LDFLAGS += -framework AudioToolbox
 
