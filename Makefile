@@ -405,17 +405,21 @@ else ifneq (,$(findstring osx,$(platform)))
    LDFLAGS += -stdlib=libc++
 
    PLATCFLAGS += -D__MACOSX__ -DOSX -DOS_MAC_OS_X -DHAVE_UNISTD_H=1 -DHAVE_POSIX_MEMALIGN -DGL_SILENCE_DEPRECATION=1
-   # NO_ASM must NOT be defined when a dynarec is built: it compiles out the
-   # EMUMODE_DYNAREC branch of generic_jump_to() (r4300_core.c), so exception
-   # dispatch to 0x80000180 silently no-ops and the guest wedges with EXL set.
-   ifeq ($(WITH_DYNAREC),)
-      PLATCFLAGS += -DNO_ASM
-   endif
    GL_LIB := -framework OpenGL
    LDFLAGS += -framework AudioToolbox
 
    # Target Dynarec
    WITH_DYNAREC =
+
+   # NO_ASM must NOT be defined when a dynarec is built: it compiles out the
+   # EMUMODE_DYNAREC branch of generic_jump_to() (r4300_core.c), so exception
+   # dispatch to 0x80000180 silently no-ops and the guest wedges with EXL set.
+   # Evaluated AFTER the reset above: a command-line WITH_DYNAREC=... survives
+   # the reset (make semantics), so dynarec builds skip NO_ASM while the
+   # default interpreter-only build keeps it.
+   ifeq ($(WITH_DYNAREC),)
+      PLATCFLAGS += -DNO_ASM
+   endif
 
    HAVE_PARALLEL_RSP = 1
    HAVE_PARALLEL_RDP = 1

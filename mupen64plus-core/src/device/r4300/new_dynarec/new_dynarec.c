@@ -11578,7 +11578,8 @@ int new_recompile_block(int addr)
   for(i=0;i<slen;i++)
   {
 #if ASSEM_DEBUG
-    /* TEMP-DIAG: upstream's disassemble_inst is gone; print raw op info */
+    /* disassemble_inst() does not exist in this fork (ASSEM_DEBUG builds
+     * were broken upstream); print the raw decoded-op fields instead. */
     assem_debug("== pc=%08x op=%08x itype=%d rs1=%d rs2=%d rt1=%d rt2=%d imm=%d",
                 start+i*4, source[i], itype[i], rs1[i], rs2[i], rt1[i], rt2[i], imm[i]);
 #endif

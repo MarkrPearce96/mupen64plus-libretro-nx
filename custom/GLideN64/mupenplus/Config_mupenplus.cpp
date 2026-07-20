@@ -197,7 +197,20 @@ extern "C" void Config_LoadConfig()
 	config.video.multisampling = MultiSampling;
 	
 	// Overscan
+#ifdef __APPLE__
+	// The overscan pass is disabled on Apple: under libretro frontends that
+	// install the HW GL context asynchronously, the overscan FBO is created
+	// before a context exists (invalid handle → binds fall through to the
+	// frontend's output FBO, and OverscanBuffer::draw() then clears the
+	// freshly presented frame every VI — permanent black screen). Zeroing the
+	// CONFIG here (not just OverscanBuffer::m_enabled) keeps everything that
+	// derives from it consistent — most importantly renderBuffer()'s
+	// blitParams.invertY = (enableOverscan == 0), which must not silently
+	// track a user option that no longer controls a pass.
+	config.frameBufferEmulation.enableOverscan = 0;
+#else
 	config.frameBufferEmulation.enableOverscan = EnableOverscan;
+#endif
 	// NTSC
 	config.frameBufferEmulation.overscanNTSC.left = OverscanLeft;
 	config.frameBufferEmulation.overscanNTSC.right = OverscanRight;

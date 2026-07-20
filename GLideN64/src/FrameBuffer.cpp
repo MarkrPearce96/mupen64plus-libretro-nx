@@ -1327,16 +1327,9 @@ f32 FrameBufferList::OverscanBuffer::getScaleY(u32 _fullHeight) const
 void FrameBufferList::OverscanBuffer::init()
 {
 	m_enabled = config.frameBufferEmulation.enableOverscan != 0;
-#ifdef __APPLE__
-	// RetroNest/macOS: the overscan pass is disabled. Under libretro
-	// frontends that install the HW GL context asynchronously, the FBO
-	// created here is unreliable (created without a live context it binds
-	// as the frontend's output FBO), and OverscanBuffer::draw() then clears
-	// the freshly presented frame every VI — permanent black screen. With
-	// the pass disabled the present renders directly to the frontend
-	// framebuffer (upstream's enableOverscan==0 path, incl. the Y-flip).
-	m_enabled = false;
-#endif
+	// (On Apple the config value is forced to 0 at the source —
+	// Config_mupenplus.cpp — so the overscan pass is disabled consistently
+	// with everything else derived from the config.)
 	if (m_enabled)
 		m_FBO = gfxContext.createFramebuffer();
 
