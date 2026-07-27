@@ -103,3 +103,42 @@ void PluginAPI::FindPluginPath(wchar_t * _strPath)
 	GetUserCachePath(_strPath);
 #endif
 }
+
+#include "../FrameBuffer.h"
+#include "../DepthBuffer.h"
+#include "../gSP.h"
+#include "../gDP.h"
+
+// Called from retro_unserialize after a savestate LOAD completes (GL is
+// bound via glsm at that point). The framebuffer/depth caches still hold
+// buffers rendered BEFORE the load — under libretro the state can only be
+// accepted after the first frame has already drawn — and stale buffers
+// composite over the restored game (frozen regions / mixed frames). Drop
+// and re-init both caches and dirty the full RSP/RDP state so everything
+// rebuilds from the restored RDRAM.
+extern "C" void gln64_invalidate_gl_cache(void)
+{
+	// Frame-boundary resync: called from retro_run right after
+	// GLSM_CTL_STATE_BIND re-imposes glsm's tracked GL state behind the
+	// cached-function layer's back. See the call site in libretro.c.
+	gfxContext.resetCachedState();
+}
+
+extern "C" void gln64_reset_framebuffer_state(void)
+{
+	// Surgical clear only: FrameBuffer_Destroy()/Init() also re-run the
+	// overscan/display-geometry init, which mid-session latches wrong
+	// window sizes and shrinks the present. Drop the cached color + depth
+	// buffers, leave geometry and VI tracking untouched, and dirty the
+	// full RSP/RDP state so everything rebuilds from the restored RDRAM.
+	// The frontend's GL state save/restore around retro_unserialize changes
+	// real GL state behind the cached-function layer's back (observed:
+	// viewport left at the present size while the cache still claimed the
+	// render size, shrinking all subsequent drawing). Invalidate every
+	// cache so the next state call re-asserts with a real GL call.
+	gfxContext.resetCachedState();
+	frameBufferList().clearBuffers();
+	depthBufferList().destroy();
+	depthBufferList().init();
+	gSP.changed = gDP.changed = 0xFFFFFFFF;
+}

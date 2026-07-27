@@ -655,6 +655,14 @@ void FrameBufferList::destroy() {
 	m_overscan.destroy();
 }
 
+void FrameBufferList::clearBuffers() {
+	gfxContext.bindFramebuffer(bufferTarget::FRAMEBUFFER, ObjectHandle::defaultFramebuffer);
+	m_list.clear();
+	m_pCurrent = nullptr;
+	m_pCopy = nullptr;
+	m_prevColorImageHeight = 0;
+}
+
 void FrameBufferList::setBufferChanged(f32 _maxY)
 {
 	gDP.colorImage.changed = TRUE;

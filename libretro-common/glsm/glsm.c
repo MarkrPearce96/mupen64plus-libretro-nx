@@ -987,20 +987,28 @@ void rglFramebufferTexture2D(GLenum target, GLenum attachment,
       type = 1;
 #endif
    if (gl_state.framebuf[type].desired_location < MAX_FRAMEBUFFERS) {
+      /* Never skip the real attach based on the cached attachment record.
+       * GL recycles texture ids, so after a delete/create cycle (e.g. the
+       * core rebuilding its framebuffers on savestate load) the record can
+       * match the new texture's id numerically while the real attachment
+       * was auto-detached when the old texture was deleted. A skipped
+       * attach then leaves the FBO incomplete or pointing at the wrong
+       * storage (observed: cropped quarter-size present after resume).
+       * Attaches are rare (buffer creation), so this costs nothing. */
       framebuffers[gl_state.framebuf[type].desired_location]->target = textarget;
       if (attachment == GL_COLOR_ATTACHMENT0) {
-         if (framebuffers[gl_state.framebuf[type].desired_location]->color_attachment != texture) {
-            bindFBO(target);
-            glFramebufferTexture2D(target, attachment, textarget, texture, level);
-            framebuffers[gl_state.framebuf[type].location]->color_attachment = texture;
-         }
+         bindFBO(target);
+         glFramebufferTexture2D(target, attachment, textarget, texture, level);
+         framebuffers[gl_state.framebuf[type].location]->color_attachment = texture;
       }
       else if (attachment == GL_DEPTH_ATTACHMENT) {
-         if (framebuffers[gl_state.framebuf[type].desired_location]->depth_attachment != texture) {
-            bindFBO(target);
-            glFramebufferTexture2D(target, attachment, textarget, texture, level);
-            framebuffers[gl_state.framebuf[type].location]->depth_attachment = texture;
-         }
+         bindFBO(target);
+         glFramebufferTexture2D(target, attachment, textarget, texture, level);
+         framebuffers[gl_state.framebuf[type].location]->depth_attachment = texture;
+      }
+      else {
+         bindFBO(target);
+         glFramebufferTexture2D(target, attachment, textarget, texture, level);
       }
    } else {
       bindFBO(target);
@@ -1220,20 +1228,22 @@ void rglFramebufferRenderbuffer(GLenum target, GLenum attachment,
       type = 1;
 #endif
    if (gl_state.framebuf[type].desired_location < MAX_FRAMEBUFFERS) {
+      /* Same as rglFramebufferTexture2D: renderbuffer ids recycle, so the
+       * cached record can lie — never skip the real attach. */
       framebuffers[gl_state.framebuf[type].desired_location]->target = renderbuffertarget;
       if (attachment == GL_COLOR_ATTACHMENT0) {
-         if (framebuffers[gl_state.framebuf[type].desired_location]->color_attachment != renderbuffer) {
-            bindFBO(target);
-            glFramebufferRenderbuffer(target, attachment, renderbuffertarget, renderbuffer);
-            framebuffers[gl_state.framebuf[type].location]->color_attachment = renderbuffer;
-         }
+         bindFBO(target);
+         glFramebufferRenderbuffer(target, attachment, renderbuffertarget, renderbuffer);
+         framebuffers[gl_state.framebuf[type].location]->color_attachment = renderbuffer;
       }
       else if (attachment == GL_DEPTH_ATTACHMENT) {
-         if (framebuffers[gl_state.framebuf[type].desired_location]->depth_attachment != renderbuffer) {
-            bindFBO(target);
-            glFramebufferRenderbuffer(target, attachment, renderbuffertarget, renderbuffer);
-            framebuffers[gl_state.framebuf[type].location]->depth_attachment = renderbuffer;
-         }
+         bindFBO(target);
+         glFramebufferRenderbuffer(target, attachment, renderbuffertarget, renderbuffer);
+         framebuffers[gl_state.framebuf[type].location]->depth_attachment = renderbuffer;
+      }
+      else {
+         bindFBO(target);
+         glFramebufferRenderbuffer(target, attachment, renderbuffertarget, renderbuffer);
       }
    } else {
       bindFBO(target);
@@ -2293,7 +2303,16 @@ void rglGenFramebuffers(GLsizei n, GLuint *ids)
 void rglBindFramebuffer(GLenum target, GLuint framebuffer)
 {
    if (framebuffer == 0)
+   {
+      /* Resolve "default framebuffer" LIVE from the frontend instead of the
+       * value latched at context reset. The frontend may retire and replace
+       * its FBO mid-session (RetroNest rebuilds it when the id gets aliased
+       * in this GL context); a stale latched id silently routes the present
+       * into whatever object now owns that id. The callback is trivially
+       * cheap. */
+      default_framebuffer = glsm_get_current_framebuffer();
       framebuffer = default_framebuffer;
+   }
 
    if (target == GL_FRAMEBUFFER) {
          gl_state.framebuf[0].desired_location = framebuffer;

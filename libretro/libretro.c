@@ -2058,8 +2058,19 @@ void retro_run (void)
              emuThreadRunning = true;
           }
        }
-       
+
        glsm_ctl(GLSM_CTL_STATE_BIND, NULL);
+       {
+          /* STATE_BIND just re-imposed glsm's tracked GL state (framebuffer
+           * binding included) with real GL calls that GLideN64's cached-
+           * function layer never sees. Any GLideN64 cache entry that still
+           * matches the pre-BIND state now causes a silently skipped call —
+           * observed hijacking the frontend FBO's color attachment when a
+           * skipped bindFramebuffer let an attach land on it. Invalidate the
+           * caches so the first use of each state this frame re-asserts. */
+          extern void gln64_invalidate_gl_cache(void);
+          gln64_invalidate_gl_cache();
+       }
     }
 
     co_switch(game_thread);
@@ -2193,6 +2204,13 @@ bool retro_unserialize(const void *data, size_t size)
 
    if (current_rdp_type == RDP_PLUGIN_GLIDEN64)
    {
+      /* GLideN64's framebuffer/depth caches still hold buffers rendered
+         BEFORE this load (libretro frontends can only deliver the state
+         after emulation started, i.e. after at least one frame drew) —
+         stale buffers then composite over the restored game. Reset them
+         while the GL context is still bound. */
+      extern void gln64_reset_framebuffer_state(void);
+      gln64_reset_framebuffer_state();
       glsm_ctl(GLSM_CTL_STATE_UNBIND, NULL);
    }
 

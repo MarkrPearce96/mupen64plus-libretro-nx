@@ -492,6 +492,12 @@ void ContextImpl::resetShaderProgram()
 	m_cachedFunctions->getCachedUseProgram()->useProgram(graphics::ObjectHandle::null);
 }
 
+void ContextImpl::resetCachedState()
+{
+	if (m_cachedFunctions)
+		m_cachedFunctions->reset();
+}
+
 void ContextImpl::drawTriangles(const graphics::Context::DrawTriangleParameters & _params)
 {
 	m_graphicsDrawer->drawTriangles(_params);

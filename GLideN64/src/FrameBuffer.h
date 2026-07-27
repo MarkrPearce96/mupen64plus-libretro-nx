@@ -118,6 +118,11 @@ class FrameBufferList
 public:
 	void init();
 	void destroy();
+	// Drop every cached framebuffer WITHOUT touching display geometry
+	// (overscan latches window sizes in init(); re-running it mid-session
+	// mis-sizes the present). Used after a savestate load, where buffers
+	// rendered before the load must not composite over the restored game.
+	void clearBuffers();
 	void saveBuffer(u32 _address, u16 _format, u16 _size, u16 _width, bool _cfb);
 	void removeAux();
 	void copyAux();

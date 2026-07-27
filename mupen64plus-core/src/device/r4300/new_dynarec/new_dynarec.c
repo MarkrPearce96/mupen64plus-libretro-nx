@@ -2828,6 +2828,13 @@ static void invalidate_page(u_int page)
   }
   head=jump_out[page];
   jump_out[page]=0;
+  /* Batch the Apple W^X toggling across the whole unlink loop: each
+   * kill_pointer -> set_jump_target otherwise pays its own
+   * pthread_jit_write_protect_np pair (the helper is depth-counted, so the
+   * per-patch pairs inside simply nest). Invalidation storms (DMA into code
+   * pages, savestate load via invalidate_all_pages) unlink many sites at
+   * once. No-op on non-Apple builds. */
+  jit_write_begin();
   while(head!=NULL) {
     inv_debug("INVALIDATE: kill pointer to %x (%x)\n",head->vaddr,(intptr_t)head->addr);
       uintptr_t host_addr=(intptr_t)kill_pointer(head->addr);
@@ -2841,6 +2848,7 @@ static void invalidate_page(u_int page)
     free(head);
     head=next;
   }
+  jit_write_end();
 }
 
 void invalidate_block(u_int block)
@@ -2923,8 +2931,12 @@ void invalidate_block(u_int block)
 static void invalidate_all_pages(void)
 {
   u_int page;
+  /* One W^X window for all 4096 pages (savestate load) — the per-page pairs
+   * inside invalidate_page nest for free under the depth counter. */
+  jit_write_begin();
   for(page=0;page<4096;page++)
     invalidate_page(page);
+  jit_write_end();
   for(page=0;page<1048576;page++)
   {
     if(!g_dev.r4300.cached_interp.invalid_code[page]) {

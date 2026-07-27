@@ -332,6 +332,14 @@ void Context::resetShaderProgram()
 	m_impl->resetShaderProgram();
 }
 
+void Context::resetCachedState()
+{
+	// Callable from the libretro frame loop before video init (the first
+	// retro_run precedes the GL context's creation) — no-op until ready.
+	if (m_impl)
+		m_impl->resetCachedState();
+}
+
 void Context::drawTriangles(const DrawTriangleParameters & _params)
 {
 	m_impl->drawTriangles(_params);

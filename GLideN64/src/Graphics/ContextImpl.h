@@ -67,6 +67,12 @@ namespace graphics {
 		virtual ShaderProgram * createFXAAShader() = 0;
 		virtual TextDrawerShaderProgram * createTextDrawerShader() = 0;
 		virtual void resetShaderProgram() = 0;
+
+		// Invalidate every cached GL state parameter so the next state call
+		// re-asserts with a real GL call. Needed when GL state is changed
+		// behind the context's back (e.g. the libretro frontend's state
+		// save/restore around retro_unserialize).
+		virtual void resetCachedState() = 0;
 		virtual void drawTriangles(const Context::DrawTriangleParameters & _params) = 0;
 		virtual void drawRects(const Context::DrawRectParameters & _params) = 0;
 		virtual void drawLine(f32 _width, SPVertex * _vertices) = 0;

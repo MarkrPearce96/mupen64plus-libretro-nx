@@ -260,6 +260,8 @@ namespace graphics {
 
 		void resetShaderProgram();
 
+		void resetCachedState();
+
 		/*---------------Draw-------------*/
 
 		struct DrawTriangleParameters

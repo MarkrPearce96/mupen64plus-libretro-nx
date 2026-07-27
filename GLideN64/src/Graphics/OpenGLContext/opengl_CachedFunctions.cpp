@@ -94,8 +94,17 @@ u32 CachedEnable::get()
 /*---------------CachedBindFramebuffer-------------*/
 
 void CachedBindFramebuffer::bind(graphics::Parameter _target, graphics::ObjectHandle _name) {
-	if (update(_target, _name))
-		glBindFramebuffer(GLenum(_target), GLuint(_name));
+	// Framebuffer binds are NOT skip-cached. The cache cannot see raw
+	// glBindFramebuffer calls made by the blit helpers or by the libretro
+	// frontend/glsm around each frame, so a "redundant" bind is frequently
+	// not redundant — and a skipped bind makes the following attach or draw
+	// land on whatever is really bound. Upstream that is the window-system
+	// FBO 0 and the stray attach fails silently; under a libretro frontend
+	// the default framebuffer is a real FBO, and stray attaches rewire it
+	// (observed: cropped/quarter present after savestate load). Binds are
+	// a few dozen per frame — always issue the real call.
+	update(_target, _name);
+	glBindFramebuffer(GLenum(_target), GLuint(_name));
 }
 
 /*---------------CachedBindRenderbuffer-------------*/

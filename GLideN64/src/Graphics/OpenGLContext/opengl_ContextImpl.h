@@ -142,6 +142,8 @@ namespace opengl {
 
 		void resetShaderProgram() override;
 
+		void resetCachedState() override;
+
 		void drawTriangles(const graphics::Context::DrawTriangleParameters & _params) override;
 
 		void drawRects(const graphics::Context::DrawRectParameters & _params) override;
